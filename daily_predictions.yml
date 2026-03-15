@@ -1,0 +1,115 @@
+name: ⚾ MLB Daily Predictions
+
+on:
+  # ── Runs automatically every day at 1pm ET (18:00 UTC) ──────────────────
+  # That's before most evening first pitches, after morning lineups post.
+  schedule:
+    - cron: "0 18 * * *"
+
+  # ── Also lets you trigger manually from the GitHub Actions tab ──────────
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Run mode"
+        required: false
+        default: "predict"
+        type: choice
+        options:
+          - predict          # Today's predictions only (fast, ~2 min)
+          - backtest         # Re-run full 2024 backtest (slow, ~25 min first time)
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  predict:
+    name: Generate Predictions
+    runs-on: ubuntu-latest
+    timeout-minutes: 60          # Kill if download hangs
+
+    steps:
+      # ── 1. Checkout repo ────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 2. Python setup ─────────────────────────────────────────────────
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      # ── 3. Cache pip packages ───────────────────────────────────────────
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      # ── 4. Install dependencies ─────────────────────────────────────────
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # ── 5. Cache Statcast data ──────────────────────────────────────────
+      # This is the key step — avoids re-downloading 800MB every run.
+      # Cache key includes year so it auto-refreshes each new season.
+      - name: Cache Statcast data
+        uses: actions/cache@v4
+        with:
+          path: cache/
+          key: statcast-2025-${{ hashFiles('mlb_models.py') }}
+          restore-keys: |
+            statcast-2025-
+            statcast-2024-
+
+      # ── 6. Run model ────────────────────────────────────────────────────
+      - name: Run predictions
+        run: |
+          MODE="${{ github.event.inputs.mode || 'predict' }}"
+          echo "Running in mode: $MODE"
+          python mlb_models.py --mode $MODE
+        env:
+          MLB_RUN_MODE: ${{ github.event.inputs.mode || 'predict' }}
+
+      # ── 7. Upload chart as artifact (viewable in Actions tab) ───────────
+      - name: Upload results chart
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mlb-results-${{ github.run_number }}
+          path: |
+            mlb_model_results_2024.png
+            nrfi_predictions_today.csv
+            k_predictions_today.csv
+            nrfi_backtest_2024.csv
+            k_backtest_2024.csv
+          retention-days: 90
+
+      # ── 8. Commit predictions back to repo ──────────────────────────────
+      # Saves a daily log of predictions in /predictions folder.
+      # Comment this entire step out if you don't want auto-commits.
+      - name: Commit predictions to repo
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          mkdir -p predictions/$DATE
+
+          # Copy any CSV outputs into dated folder
+          for f in nrfi_predictions_today.csv k_predictions_today.csv; do
+            if [ -f "$f" ]; then
+              cp "$f" predictions/$DATE/
+            fi
+          done
+
+          # Copy chart
+          if [ -f "mlb_model_results_2024.png" ]; then
+            cp mlb_model_results_2024.png predictions/$DATE/results.png
+          fi
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add predictions/
+          git diff --staged --quiet || git commit -m "📊 MLB predictions $DATE [bot]"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
