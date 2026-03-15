@@ -8,7 +8,7 @@
 
 ## ▶️ Run in Google Colab (easiest — no install)
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/YOUR_USERNAME/YOUR_REPO/blob/main/mlb_models.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/mpellas/mlb-models/blob/main/mlb_models.ipynb)
 
 Click the badge above → Runtime → Run All.  
 First run downloads 2024 Statcast data (~20 min). Subsequent runs use cache.
